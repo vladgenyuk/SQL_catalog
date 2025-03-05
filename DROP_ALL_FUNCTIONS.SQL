@@ -1,29 +1,34 @@
-DO $$ 
-BEGIN
-  EXECUTE (
-    SELECT string_agg(format('DROP FUNCTION IF EXISTS %s(%s);', 
-                             n.nspname || '.' || p.proname, 
-                             pg_get_function_identity_arguments(p.oid)), 
-                      E'\n')
-    FROM pg_proc p
-      JOIN pg_namespace n ON p.pronamespace = n.oid
-    WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') -- Exclude system schemas
-      AND p.proisagg = FALSE -- Exclude aggregate functions
-  );
-END $$;
-
-
-
-
+-- Drop all triggers
 DO $$ 
 DECLARE
-  r RECORD;
+    triggername TEXT;
+    tablename TEXT;
+    stmt TEXT;
 BEGIN
-  FOR r IN
-    SELECT event_object_table AS table_name, 
-           trigger_name 
-    FROM information_schema.triggers
-  LOOP
-    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I;', r.trigger_name, r.table_name);
-  END LOOP;
+    FOR triggername, tablename IN 
+        SELECT trigger_name, event_object_table
+        FROM information_schema.triggers
+        WHERE trigger_schema = 'public'
+    LOOP
+        stmt := 'DROP TRIGGER IF EXISTS ' || quote_ident(triggername) || ' ON ' || quote_ident(tablename) || ' CASCADE;';
+        EXECUTE stmt;
+    END LOOP;
+END $$;
+
+-- Drop all functions
+DO $$
+DECLARE
+    funcname TEXT;
+    funcargs TEXT;
+    stmt TEXT;
+BEGIN
+    FOR funcname, funcargs IN
+        SELECT p.proname, pg_get_function_identity_arguments(p.oid)
+        FROM pg_proc p
+        JOIN pg_namespace n ON p.pronamespace = n.oid
+        WHERE n.nspname = 'public'
+    LOOP
+        stmt := 'DROP FUNCTION IF EXISTS ' || quote_ident(funcname) || '(' || funcargs || ') CASCADE;';
+        EXECUTE stmt;
+    END LOOP;
 END $$;
